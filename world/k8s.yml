@@ -1,0 +1,128 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: world-web
+  labels:
+    app: world
+    run: world-web
+spec:
+  # How many copies of each pod do we want?
+  replicas: 2
+  
+  # How do want to update the pods?
+  strategy: Recreate
+
+  # Which pods are managed by this deployment?
+  selector:
+    # This must match the labels we set on the pod!
+    matchLabels:
+      run: world-web
+
+  # This template field is a regular pod configuration nested inside the deployment spec.
+  template:
+    metadata:
+      # Set labels on the pod. This is used in the deployment selector.
+      labels:
+        app: world
+        run: world-web
+    spec:
+      volumes:
+        - name: shared-volume
+          emptyDir: {}
+
+      containers:
+        - name: nginx
+          image: myk8s/nginx:v1
+          lifecycle:
+            postStart:
+              exec:
+                command: ["/bin/bash", "-c", "cp -r /tmp/* /usr/share/nginx/html/"]
+          volumeMounts:
+            - name: shared-volume
+              mountPath: /usr/share/nginx/html
+          ports:
+            - containerPort: 80
+
+        - name: php
+          image: myk8s/php:v1
+          env:
+            - name: DB_SERVER_NAME
+              value: world-mysql
+            - name: DB_USER_NAME
+              value: root
+            - name: DB_PASSWORD
+              value: secret
+            - name: DB_NAME
+              value: world
+          volumeMounts:
+            - name: shared-volume
+              mountPath: /usr/share/nginx/html
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: world-db
+  labels:
+    app: world
+    run: world-db
+spec:
+  replicas: 1
+  strategy: Recreate
+  selector:
+    matchLabels:
+      run: world-db
+  template:
+    metadata:
+      labels:
+        app: world
+        run: world-db
+    spec:
+      volumes:
+        - name: shared-volume
+          emptyDir: {}
+
+      containers:
+        - name: mysql
+          image: myk8s/mysql:v1
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: secret
+          ports:
+            - containerPort: 3306
+
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: world-http
+  labels:
+    app: world
+    run: world-http
+spec:
+  selector:
+    run: world-web
+  ports:
+      # Inside the cluster, what port does the service expose?
+    - port: 80
+      # Which port do pods selected by this service expose?
+      targetPort: 80
+      # Which port on the node is the service available through?
+      nodePort: 30000
+  type: LoadBalancer
+
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: world-mysql
+  labels:
+    run: world-mysql
+spec:
+  selector:
+    run: world-db
+  ports:
+    - port: 3306
+      targetPort: 3306
+
